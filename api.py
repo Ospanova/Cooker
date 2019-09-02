@@ -106,6 +106,31 @@ def check_add_task(text, res):
         return True
     return False
         
+def add_task(res, cook_id):
+    if len(order_heap) == 0:
+        res['response']['text'] = 'Нет текущих заказов.'
+        return
+    cur_order = heappop(order_heap)
+    empl_list[cook_id] = cur_order.orderId
+    res['response']['text'] = 'Заказ {} выполняет повар {}.'.format(cur_order.orderName, cook_id)
+    
+
+def check_end_task(text, res):
+    tokens = text.split()
+    if len(tokens) != 3:
+        return False
+    if tokens[0] == 'свободен':
+        if tokens[1] == 'повар' and tokens[2].isdigit():
+            cook_id = int(tokens[2])
+            if cook_id >= 1 and cook_id <= 3:
+                empl_list[cook_id] = 0
+                add_task(res, cook_id)
+                return True
+            else:
+                res['response']['text'] = 'Нет такого повара.'
+                return True
+    return False
+
 
 # Функция для непосредственной обработки диалога.
 def handle_dialog(req, res):
@@ -148,11 +173,18 @@ def handle_dialog(req, res):
             # order_id = get_order_of_cooker(user_id)
             manager_message = "Повар с айди %s закончил заказ ." % user_id # TODO: ADD concatination
             return
-
-    
+    if user.role == 2:
+        if tokens and tokens[0].lower() == 'новости':
+            res['response']['text'] = manager_message
+            manager_message = ''
+            return
+        if tokens and text == 'список заказов':
+            res['response']['text'] = 'В системе нет заказов'
+            return
+            
     if check_new_order(text, res):
         return
-    if check_add_task(text, res):
+    if check_end_task(text, res):
         return
     res['response']['text'] = 'Вас не понял('
             
