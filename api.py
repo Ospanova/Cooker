@@ -38,7 +38,7 @@ manager_message = ''
 empl_list = [True, True, True, True]
 
 
-roles = {'crm': 0, 'повар': 1, 'менеджер': 2}
+roles = {'crm': 0, 'менеджер': 1, 'повар 1': 2, 'повар 2': 3, 'повар 3': 4}
 
 from flask import Flask, request
 app = Flask(__name__)
@@ -140,9 +140,11 @@ def handle_dialog(req, res):
         res['response']['text'] = 'Добро пожаловать! Можете представиться?'
         sessionStorage[user_id] = {
             'suggests': [
-                "CRM",
-                "Повар",
-                "Менеджер",
+                "crm",
+                "менеджер",
+                "повар 1", 
+                "повар 2", 
+                "повар 3"
             ]
         }
         #TODO: Menu for customers
@@ -177,11 +179,9 @@ def handle_dialog(req, res):
         if tokens and tokens[0].lower() == 'новости':
             res['response']['text'] = manager_message
             manager_message = ''
-            return
         if tokens and text == 'список заказов':
             res['response']['text'] = 'В системе нет заказов'
-            return
-            
+    
     if check_new_order(text, res):
         return
     if check_end_task(text, res):
@@ -202,5 +202,3 @@ def get_suggests(user_id):
         {'title': suggest, 'hide': True}
         for suggest in session['suggests'][:3]
     ]
-
-    return suggests
