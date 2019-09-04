@@ -8,6 +8,7 @@ import logging
 
 # Импортируем подмодули Flask для запуска веб-сервиса.
 from datetime import time
+import datetime
 from models import Order
 from user import User
 from heapq import heappush, heappop
@@ -27,18 +28,17 @@ recipes = {'борщ': time(0, 2, 40), 'грибной суп':  time(0, 2, 27),
 
 current_orders = []
 order_heap = []
-orders = []
+cook_orders = []
 users = []
 order_id = 0
 cook_time = time(0, 7, 0)
 start_tokens = ['приготовь', 'приготовить', 'новый заказ']
-manager_id = None
-manager_message = ''
+manager_id = None          
+allOrders = []
 
-empl_list = [True, True, True, True]
+empl_list = [0, 0, 0, 0]
 
-
-roles = {'crm': 0, 'менеджер': 1, 'повар 1': 2, 'повар 2': 3, 'повар 3': 4}
+roles = {'crm': 4, 'менеджер': 0, 'петя': 1, 'иван': 2, 'николай': 3}
 
 from flask import Flask, request
 app = Flask(__name__)
@@ -68,83 +68,92 @@ def main():
 
 
 def check_new_order(text, res):
+    global order_id
+    global order_heap
     tokens = text.split()
     if tokens and (tokens[0].lower() in start_tokens):
         if (len(tokens) == 1):
             res['response']['text'] = 'Хз что готовить'
             return True
         recipe = ' '.join(tokens[1:])
-        if (recipes.get(recipe) != None):
-            item = recipes.get(recipe)
-            order = Order(recipe, time(0, 6-item.minute, 60-item.second))
-            heappush(order_heap, order)
-            res['response']['text'] = 'Заказ добавлен в очередь!'
-            return True
-    return False
-
-# def get_free_cooker():
-#     for user in users:
-#         if user.status and user.role == 1:
-#             return user
-#     return None
-
-
-
-def check_add_task(text, res):
-    if text.lower() == 'проверь заказы':
-        if len(order_heap) == 0:
-            res['response']['text'] = 'Нет текущих заказов.'
-            return True
-        cur_order = heappop(order_heap)
-        cook_id = get_free_cooker()
-        # cooker = get_free_cooker()
-        if cooker:
-            res['response']['text'] = 'Заказ {} выполняет повар {}.'.format(cur_order.orderName, cook_id)
-            # res['response']['text'] = 'Заказ {} выполняет повар {}.'.format(cur_order.orderName, cooker.userId)
-        else:
-            res['response']['text'] = 'Все повара заняты.'
-        return True
-    return False
         
-def add_task(res, cook_id):
+        if (recipes.get(recipe) != None):
+            timestamp = datetime.datetime.now().time()
+            timestamp = time(timestamp.hour, timestamp.minute, timestamp.second)
+            order_id += 1
+            item = recipes.get(recipe)
+            if item.second == 0:
+                order = Order(order_id, recipe, time(0, 7-item.minute, 0), timestamp, "ожидает")
+            else:
+                order = Order(order_id, recipe, time(0, 6-item.minute, 60-item.second), timestamp, "ожидает")
+            heappush(order_heap, order)
+            res['response']['text'] = 'Заказ с блюдом {} добавлен в очередь!'.format(order.orderName)
+            return True
+    return False
+
+def get_free_cooker():
+    for i in range(1, 4):
+        if empl_list[i] == 0:
+            return i
+    return -1
+
+def add_task(text, res, cook_id):
+    global order_heap
     if len(order_heap) == 0:
         res['response']['text'] = 'Нет текущих заказов.'
         return
     cur_order = heappop(order_heap)
+    cur_order.status = 'готовится'
+    heappush(cook_orders, cur_order)
     empl_list[cook_id] = cur_order.orderId
-    res['response']['text'] = 'Заказ {} выполняет повар {}.'.format(cur_order.orderName, cook_id)
     
+    res['response']['text'] = text + 'Вы выполняете заказ № :  {}.'.format(cur_order.orderId)
 
-def check_end_task(text, res):
-    tokens = text.split()
-    if len(tokens) != 3:
-        return False
-    if tokens[0] == 'свободен':
-        if tokens[1] == 'повар' and tokens[2].isdigit():
-            cook_id = int(tokens[2])
-            if cook_id >= 1 and cook_id <= 3:
-                empl_list[cook_id] = 0
-                add_task(res, cook_id)
-                return True
-            else:
-                res['response']['text'] = 'Нет такого повара.'
-                return True
+
+def check_show_orders(text, res):
+    global order_heap
+    global cook_orders
+    orders = order_heap + cook_orders
+    orders.sort()
+    print (len(orders))
+    if text.lower() == 'покажи очередь':
+        res['response']['text'] = ''
+        timestamp = datetime.datetime.now().time()
+        if len(orders) == 0:
+            res['response']['text'] = 'Нет заказов в системе'
+            return True
+        for item in orders:
+            minutes = timestamp.minute-item.addTime.minute
+            if minutes < 0:
+                minutes += 60
+            seconds = timestamp.second-item.addTime.second
+            if seconds < 0:
+                seconds += 60
+                minutes -= 1
+            res['response']['text'] += 'Блюдо: {}, время заказа: {}, время в очереди: {}, статус: {}\n'.format(item.orderName, item.addTime, time(0, minutes, seconds), item.status)
+        return True
     return False
 
 
-# Функция для непосредственной обработки диалога.
-def handle_dialog(req, res):
-    user_id = req['session']['user_id']
+def check_end_task(text, res, cook_id):
+    add_task(text, res, cook_id)
+    return True
 
+
+# Функция для непосредственной обsработки диалога.
+def handle_dialog(req, res):
+    manager_message = ''     
+    user_id = req['session']['user_id']
+    current_user = -1
     if req['session']['new']:
         res['response']['text'] = 'Добро пожаловать! Можете представиться?'
         sessionStorage[user_id] = {
             'suggests': [
-                "crm",
-                "менеджер",
-                "повар 1", 
-                "повар 2", 
-                "повар 3"
+                "crm",                     
+                "менеджер",                     
+                "повар1",               
+                "повар2",       
+                "повар3"
             ]
         }
         #TODO: Menu for customers
@@ -153,45 +162,49 @@ def handle_dialog(req, res):
 
     # Обрабатываем ответ пользователя.
     text = req['request']['original_utterance']
-
     
     tokens = req['request']['original_utterance'].split()
-    user = get_user(user_id)
-    if tokens and tokens[0].lower() in roles.keys():
-            users.append(User(user_id, roles[tokens[0].lower()], 1))
-            res['response']['text'] = 'Очень приятно'
-            return 
-        
-    if user.role == 1 :
-        if tokens and tokens[0].lower() in [
-            'сделал',
-            'доделал',
-            'все',
-            'закончил',
-            'готово'
-        ]:
-            res['response']['text'] = 'Молодец!'
-            # manager_message += '\n'
-            # order_id = get_order_of_cooker(user_id)
-            manager_message = "Повар с айди %s закончил заказ ." % user_id # TODO: ADD concatination
-            return
-    if user.role == 2:
-        if tokens and tokens[0].lower() == 'новости':
-            res['response']['text'] = manager_message
-            manager_message = ''
-        if tokens and text == 'список заказов':
-            res['response']['text'] = 'В системе нет заказов'
-    
+    if tokens and text.lower() in roles.keys():
+        # users.append(User(user_id, roles[tokens[0].lower()], 1))                    
+        current_user = roles[tokens[0].lower()]
+        if current_user >= 1 and current_user <= 3 and empl_list[current_user] == 0:
+            if check_end_task('', res, current_user):
+                return
+        res['response']['text'] = 'Поменяла пользователя'
+        return 
+
+    if check_show_orders(text, res):
+        return
+     
     if check_new_order(text, res):
         return
-    if check_end_task(text, res):
-        return
+        
+    if tokens:
+        if text == 'не могу выполнить':
+            manager_message += '' 
+            res['response']['text'] = 'назовите причину'
+            return
+
+        if text == 'приступаю':
+            res['response']['text'] = 'приняла'
+            return            
+        if text == 'нет ингредиентов':      
+            res['response']['text'] = 'Ок буду согласовывать замену'
+            check_end_task(res['response']['text'], res, current_user)
+            return 
+        if text == 'выполнил':
+            empl_list[current_user] = 0
+            check_end_task('', res, current_user)
+            return 
+
     res['response']['text'] = 'Вас не понял('
+    return
             
 def get_user(id) :
     for user in users :
         if (user.userId == id):
             return user
+    return None
 
 # Функция возвращает две подсказки для ответа.
 def get_suggests(user_id):
@@ -200,5 +213,6 @@ def get_suggests(user_id):
     # Выбираем две первые подсказки из массива.
     suggests = [
         {'title': suggest, 'hide': True}
-        for suggest in session['suggests'][:3]
+        for suggest in session['suggests'][:5]
     ]
+    return suggests
